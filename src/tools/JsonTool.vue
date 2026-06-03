@@ -1,146 +1,122 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, reactive, nextTick, computed } from 'vue'
 
-const jsonIn = ref('')
+const jsonText = ref('')
 const jsonMsg = ref('')
-const jsonMsgClass = ref('msg')
-const jsonTree = ref(null)
-const jsonTreeVisible = ref(false)
-const jsonData = ref(null)
+const jsonMsgOk = ref(true)
+const parsedData = ref(null)
+const parseError = ref('')
+
 let nodeId = 0
 
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function show(text, ok) { jsonMsg.value = text; jsonMsgOk.value = ok }
 
-function showJsonMsg(text, ok) {
-  jsonMsg.value = text; jsonMsgClass.value = 'msg ' + (ok ? 'success' : 'error')
-}
-
-function hideTree() { jsonTreeVisible.value = false }
-
-function renderJsonTree(data) {
-  nodeId = 0
-  jsonTreeVisible.value = true
-  nextTick(() => { if (jsonTree.value) jsonTree.value.innerHTML = buildTree(data, 0, true) })
-}
-
-function buildTree(val, depth, expanded) {
-  if (val === null) return '<span class="json-null">null</span>'
-  if (typeof val === 'boolean') return '<span class="json-boolean">' + val + '</span>'
-  if (typeof val === 'number') return '<span class="json-number">' + val + '</span>'
-  if (typeof val === 'string') return '<span class="json-string">"' + esc(val) + '"</span>'
-  const isArr = Array.isArray(val)
-  const keys = Object.keys(val); const len = keys.length
-  const id = 'jn_' + nodeId++; const cls = depth === 0 ? 'json-node root' : 'json-node'
-  if (len === 0) return '<span class="json-bracket">' + (isArr ? '[]' : '{}') + '</span>'
-  const arrow = expanded ? '▼' : '▶'
-  const cvDisplay = expanded ? 'none' : 'inline'
-  const evDisplay = expanded ? 'inline' : 'none'
-  const cv = '<span class="json-cv" style="display:' + cvDisplay + '">'
-    + ' <span class="json-ellipsis">…</span>'
-    + '<span class="json-bracket">' + (isArr ? ']' : '}') + '</span>'
-    + '</span>'
-  let ev = '<span class="json-ev" style="display:' + evDisplay + '">'
-  ev += '<ul class="' + cls + '" style="display:' + (expanded ? 'block' : 'none') + '">'
-  keys.forEach((k, i) => {
-    ev += '<li>'
-    if (!isArr) ev += '<span class="json-key">"' + esc(k) + '"</span>'
-    ev += buildTree(val[k], depth + 1, expanded)
-    if (i < len - 1) ev += ','
-    ev += '</li>'
-  })
-  ev += '</ul>'
-  ev += '<span class="json-bracket">' + (isArr ? ']' : '}') + '</span>'
-  ev += '</span>'
-  return '<span class="json-compound">'
-    + '<span class="json-toggle" data-id="' + id + '">' + arrow + '</span>'
-    + '<span class="json-bracket">' + (isArr ? '[' : '{') + '</span>'
-    + '<span class="json-count">' + len + '</span>'
-    + cv + ev
-    + '</span>'
-}
-
-function toggleNode(e) {
-  const toggle = e.target.closest('.json-toggle')
-  if (!toggle) return
-  const container = toggle.parentNode
-  const cv = container.querySelector('.json-cv')
-  const ev = container.querySelector('.json-ev')
-  const ul = ev ? ev.querySelector('ul') : null
-  const isExpanded = ev && ev.style.display !== 'none'
-  if (isExpanded) {
-    toggle.textContent = '▶'
-    if (cv) cv.style.display = 'inline'
-    if (ev) ev.style.display = 'none'
-    if (ul) ul.style.display = 'none'
-  } else {
-    toggle.textContent = '▼'
-    if (cv) cv.style.display = 'none'
-    if (ev) ev.style.display = 'inline'
-    if (ul) ul.style.display = 'block'
+// ── Parse & Render ─────────────────────────
+function autoParse() {
+  const v = jsonText.value.trim()
+  if (!v) { parsedData.value = null; parseError.value = ''; jsonMsg.value = ''; itemCount.value = 0; return }
+  try {
+    parsedData.value = JSON.parse(v)
+    parseError.value = ''
+    jsonMsg.value = ''
+    itemCount.value = Array.isArray(parsedData.value) ? parsedData.value.length : Object.keys(parsedData.value).length
+    return
+  } catch (e1) {
+    const fixed = tryFixJson(v)
+    if (fixed && fixed !== v) {
+      try { parsedData.value = JSON.parse(fixed); parseError.value = ''; jsonMsg.value = '⚠ 已自动修正格式问题'; jsonMsgOk.value = true; itemCount.value = Array.isArray(parsedData.value) ? parsedData.value.length : Object.keys(parsedData.value).length; return } catch (e2) {}
+    }
   }
-}
-
-function jsonExpandAll() {
-  if (!jsonTree.value) return
-  jsonTree.value.querySelectorAll('.json-toggle').forEach(t => t.textContent = '▼')
-  jsonTree.value.querySelectorAll('.json-cv').forEach(e => e.style.display = 'none')
-  jsonTree.value.querySelectorAll('.json-ev').forEach(e => e.style.display = 'inline')
-  jsonTree.value.querySelectorAll('.json-ev ul').forEach(e => e.style.display = 'block')
-}
-function jsonCollapseAll() {
-  if (!jsonTree.value) return
-  jsonTree.value.querySelectorAll('.json-toggle').forEach(t => t.textContent = '▶')
-  jsonTree.value.querySelectorAll('.json-cv').forEach(e => e.style.display = 'inline')
-  jsonTree.value.querySelectorAll('.json-ev').forEach(e => e.style.display = 'none')
-  jsonTree.value.querySelectorAll('.json-ev ul').forEach(e => e.style.display = 'none')
+  parsedData.value = null
+  itemCount.value = 0
+  parseError.value = '格式错误'
+  jsonMsg.value = '⚠ JSON 格式错误'
+  jsonMsgOk.value = false
 }
 
 function formatJson() {
+  const v = jsonText.value.trim()
+  if (!v) return
+  // Try direct parse
   try {
-    jsonData.value = JSON.parse(jsonIn.value)
-    jsonIn.value = JSON.stringify(jsonData.value, null, 2)
-    renderJsonTree(jsonData.value)
-    showJsonMsg('✓ 格式化成功', true)
-  } catch (e) { jsonData.value = null; hideTree(); showJsonMsg('✗ JSON 解析错误: ' + e.message, false) }
-}
-function compressJson() {
-  try {
-    jsonData.value = JSON.parse(jsonIn.value)
-    jsonIn.value = JSON.stringify(jsonData.value)
-    renderJsonTree(jsonData.value)
-    showJsonMsg('✓ 压缩成功', true)
-  } catch (e) { jsonData.value = null; hideTree(); showJsonMsg('✗ JSON 解析错误: ' + e.message, false) }
-}
-function autoFormatJson() {
-  const v = jsonIn.value.trim()
-  if (!v) { jsonData.value = null; hideTree(); jsonMsg.value = ''; return }
-  try { jsonData.value = JSON.parse(v); jsonMsg.value = ''; renderJsonTree(jsonData.value); return } catch (e1) {
+    parsedData.value = JSON.parse(v)
+    jsonText.value = JSON.stringify(parsedData.value, null, 2)
+    itemCount.value = Array.isArray(parsedData.value) ? parsedData.value.length : Object.keys(parsedData.value).length
+    show('✓ 格式化成功', true)
+    return
+  } catch (e) {
+    // Try fix
     const fixed = tryFixJson(v)
     if (fixed && fixed !== v) {
-      try { jsonData.value = JSON.parse(fixed); jsonMsg.value = '⚠ 检测到格式问题，已自动修正'; jsonMsgClass.value = 'msg success'; renderJsonTree(jsonData.value); return } catch (e2) {}
+      try {
+        parsedData.value = JSON.parse(fixed)
+        jsonText.value = JSON.stringify(parsedData.value, null, 2)
+        show('✓ 已自动修复并格式化', true)
+        return
+      } catch (e2) {}
     }
   }
-  jsonData.value = null; hideTree(); showJsonMsg('⚠ JSON 格式错误（可点击 🔧 修复按钮尝试自动修正）', false)
+  parsedData.value = null
+  show('✗ JSON 解析错误', false)
 }
-function clearJson() { jsonIn.value = ''; jsonData.value = null; hideTree(); jsonMsg.value = '' }
-function copyJsonTree() {
-  if (!jsonTreeVisible.value || !jsonData.value) { showJsonMsg('⚠ 没有可复制的内容', false); return }
-  navigator.clipboard.writeText(jsonTree.value.innerText).then(
-    () => showJsonMsg('✓ 已复制到剪贴板', true),
-    () => showJsonMsg('✗ 复制失败', false)
+
+function compressJson() {
+  const v = jsonText.value.trim()
+  if (!v) return
+  try {
+    parsedData.value = JSON.parse(v)
+    jsonText.value = JSON.stringify(parsedData.value)
+    show('✓ 压缩成功', true)
+  } catch (e) {
+    const fixed = tryFixJson(v)
+    if (fixed && fixed !== v) {
+      try {
+        parsedData.value = JSON.parse(fixed)
+        jsonText.value = JSON.stringify(parsedData.value)
+        show('✓ 压缩成功', true)
+        return
+      } catch (e2) {}
+    }
+    show('✗ JSON 解析错误', false)
+  }
+}
+
+function fixJson() {
+  const v = jsonText.value.trim()
+  if (!v) return
+  try {
+    parsedData.value = JSON.parse(v)
+    jsonText.value = JSON.stringify(parsedData.value, null, 2)
+    show('✓ JSON 格式正确，无需修复', true)
+    return
+  } catch (e) {
+    const fixed = tryFixJson(v)
+    if (!fixed || fixed === v) { show('✗ 自动修复失败', false); return }
+    try {
+      parsedData.value = JSON.parse(fixed)
+      jsonText.value = JSON.stringify(parsedData.value, null, 2)
+      show('✓ 已修复并格式化', true)
+    } catch (e2) { show('✗ 修复后仍有错误', false) }
+  }
+}
+
+function clearAll() {
+  jsonText.value = ''
+  parsedData.value = null
+  parseError.value = ''
+  jsonMsg.value = ''
+}
+
+function copyData() {
+  if (!parsedData.value) { show('⚠ 没有可复制的内容', false); return }
+  navigator.clipboard.writeText(jsonText.value).then(
+    () => show('✓ 已复制', true),
+    () => show('✗ 复制失败', false)
   )
 }
 
-// ── JSON Fixer ────────────────────────────
-function fixJson() {
-  const raw = jsonIn.value.trim()
-  if (!raw) return
-  try { jsonData.value = JSON.parse(raw); jsonIn.value = JSON.stringify(jsonData.value, null, 2); renderJsonTree(jsonData.value); showJsonMsg('✓ JSON 格式正确，无需修复', true); return } catch (e) {}
-  const fixed = tryFixJson(raw)
-  if (!fixed || fixed === raw) { showJsonMsg('✗ 自动修复失败，请手动检查 JSON 语法', false); return }
-  try { jsonData.value = JSON.parse(fixed); jsonIn.value = JSON.stringify(jsonData.value, null, 2); renderJsonTree(jsonData.value); showJsonMsg('✓ 已修复并格式化', true) } catch (e) { showJsonMsg('✗ 修复后仍有错误: ' + e.message, false) }
-}
-
+// ── JSON Fixer Engine ──────────────────────
 function tryFixJson(str) {
   let s = str
   s = s.replace(/\/\*[\s\S]*?\*\//g, '')
@@ -162,6 +138,7 @@ function tryFixJson(str) {
   s = s.replace(/,\s*\]/g, ']')
   return s
 }
+
 function fixQuotes(s) {
   let result = ''; let inDouble = false; let inSingle = false; let i = 0
   while (i < s.length) {
@@ -180,61 +157,289 @@ function fixQuotes(s) {
   }
   return result
 }
+
+// ── Tree Render ────────────────────────────
+const treeNodeStates = reactive({})
+const itemCount = ref(0)
+const isArray = computed(() => parsedData.value && Array.isArray(parsedData.value))
+
+function renderTree() {
+  if (!parsedData.value) return
+  nodeId = 0
+  // reset all node states to expanded
+  Object.keys(treeNodeStates).forEach(k => delete treeNodeStates[k])
+  const data = parsedData.value
+  itemCount.value = Array.isArray(data) ? data.length : Object.keys(data).length
+}
+
+function toggle(key) {
+  treeNodeStates[key] = !treeNodeStates[key]
+}
+
+function isExpanded(key) {
+  return treeNodeStates[key] !== false // default expanded
+}
+
+const rootLabel = computed(() => {
+  if (!parsedData.value) return parseError.value ? '解析错误' : '等待输入…'
+  return isArray.value ? 'Array [' + itemCount.value + ']' : 'Object {' + itemCount.value + '}'
+})
+
+autoParse()
 </script>
 
 <template>
-  <div class="card">
+  <div class="card json-card">
     <div class="card-header">
-      <h2><span class="icon">📋</span> JSON 格式化</h2>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="btn-sm" style="background:#fef3c7;color:#92400e" @click="fixJson">🔧 修复</button>
-        <button class="btn-sm btn-secondary" @click="jsonExpandAll">全部展开</button>
-        <button class="btn-sm btn-secondary" @click="jsonCollapseAll">全部折叠</button>
+      <h2><span class="icon">📋</span> JSON 数据解析</h2>
+      <div class="header-actions">
+        <button class="btn-sm btn-primary" @click="fixJson">🔧 修复</button>
+        <button class="btn-sm btn-secondary" @click="compressJson">压缩</button>
+        <button class="btn-sm btn-danger" @click="clearAll">清空</button>
       </div>
     </div>
-    <div class="card-body">
-      <textarea v-model="jsonIn" placeholder="输入 JSON 后自动格式化…" @input="autoFormatJson"></textarea>
-      <div class="btn-row">
-        <button class="btn-primary" @click="formatJson">格式化</button>
-        <button class="btn-secondary" @click="compressJson">压缩</button>
-        <button class="btn-success" @click="copyJsonTree">📋 复制</button>
-        <button class="btn-danger" @click="clearJson">清空</button>
+    <div class="card-body json-body">
+      <!-- Left: Input -->
+      <div class="json-left">
+        <textarea
+          v-model="jsonText"
+          placeholder="粘贴 JSON 数据..."
+          @input="autoParse"
+        ></textarea>
+        <div class="btn-row">
+          <button class="btn-primary" @click="formatJson">格式化</button>
+          <button class="btn-success" @click="copyData">📋 复制</button>
+        </div>
+        <div :class="['msg', jsonMsgOk ? 'success' : 'error']" v-if="jsonMsg">{{ jsonMsg }}</div>
       </div>
-      <div
-        ref="jsonTree"
-        class="json-tree"
-        :class="{ visible: jsonTreeVisible }"
-        @click="toggleNode"
-      ></div>
-      <div :class="jsonMsgClass">{{ jsonMsg }}</div>
+
+      <!-- Right: Tree -->
+      <div class="json-right">
+        <div class="json-tree-header">
+          <span class="tree-root-label">{{ rootLabel }}</span>
+        </div>
+        <div class="json-tree" v-if="parsedData">
+          <JsonNode
+            :val="parsedData"
+            :depth="0"
+            :path="'$'"
+            :isLast="true"
+            :toggle="toggle"
+            :isExpanded="isExpanded"
+            :esc="esc"
+          />
+        </div>
+        <div class="json-tree-placeholder" v-else>
+          <template v-if="parseError">
+            <span class="error-icon">⚠️</span>
+            <span>{{ parseError }}</span>
+          </template>
+          <template v-else>
+            <span>左侧输入 JSON 后在此解析展示</span>
+          </template>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
+<!-- ═══ JsonNode recursive component ═══ -->
+<script>
+import { h, defineComponent } from 'vue'
+
+export const JsonNode = defineComponent({
+  name: 'JsonNode',
+  props: ['val', 'depth', 'path', 'isLast', 'toggle', 'isExpanded', 'esc'],
+  setup(props) {
+    return () => {
+      const { val, depth, path, isLast, toggle, isExpanded, esc } = props
+      const comma = !isLast ? ',' : ''
+
+      if (val === null) return h('span', { class: 'jn-null' }, 'null' + comma)
+      if (typeof val === 'boolean') return h('span', { class: 'jn-bool' }, val + '' + comma)
+      if (typeof val === 'number') return h('span', { class: 'jn-num' }, val + '' + comma)
+      if (typeof val === 'string') return h('span', { class: 'jn-str' }, `"${esc(val)}"` + comma)
+
+      const isArr = Array.isArray(val)
+      const keys = Object.keys(val)
+      const len = keys.length
+      const nodeKey = path
+      const expanded = isExpanded(nodeKey)
+      const bracket = isArr ? ['[', ']'] : ['{', '}']
+
+      if (len === 0) {
+        return h('span', { class: 'jn-bracket' }, bracket[0] + bracket[1] + comma)
+      }
+
+      const children = []
+
+      // clickable row
+      children.push(h('div', {
+        class: 'jn-row',
+        onClick: () => toggle(nodeKey),
+      }, [
+        h('span', { class: 'jn-arrow' }, expanded ? '▼' : '▶'),
+        h('span', { class: 'jn-bracket' }, bracket[0]),
+        h('span', { class: 'jn-count' }, ` ${len} `),
+        expanded
+          ? h('span', { class: 'jn-dots' })
+          : h('span', { class: 'jn-dots' }, '…' + bracket[1] + comma),
+      ]))
+
+      if (expanded) {
+        const list = h('div', { class: 'jn-children' },
+          keys.map((k, i) => {
+            const childPath = path + (isArr ? `[${k}]` : `.${k}`)
+            return h('div', { class: 'jn-child-row', key: k }, [
+              !isArr ? h('span', { class: 'jn-key' }, `"${esc(k)}"`) : h('span', { class: 'jn-idx' }, `${k}`),
+              h('span', { class: 'jn-colon' }, ': '),
+              h(JsonNode, {
+                val: val[k],
+                depth: depth + 1,
+                path: childPath,
+                isLast: i === len - 1,
+                toggle,
+                isExpanded,
+                esc,
+              }),
+            ])
+          })
+        )
+        children.push(list)
+        children.push(h('div', { class: 'jn-row jn-close' }, [
+          h('span', { class: 'jn-arrow' }, ''),
+          h('span', { class: 'jn-bracket' }, bracket[1] + comma),
+        ]))
+      }
+
+      return h('div', { class: 'jn-node' }, children)
+    }
+  },
+})
+</script>
+
 <style scoped>
-.json-tree {
-  margin-top: 12px; background: #1e1e2e; color: #cdd6f4;
-  border-radius: 8px; padding: 14px 16px;
+/* ── Layout ──────────────────────────── */
+.json-card { max-height: none !important; }
+.json-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  padding: 0 !important;
+  min-height: 480px;
+  max-height: calc(100vh - 160px);
+}
+@media (max-width: 768px) {
+  .json-body { grid-template-columns: 1fr; min-height: auto; }
+}
+
+/* ── Left Panel ──────────────────────── */
+.json-left {
+  padding: 16px;
+  border-right: 1px solid #e5e7eb;
+  display: flex; flex-direction: column;
+}
+.json-left textarea {
+  flex: 1;
   font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
-  font-size: 13px; line-height: 1.7; max-height: 500px;
-  overflow: auto; white-space: nowrap; display: none;
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  resize: none;
+  background: #fafbfc;
 }
-.json-tree.visible { display: block; }
-.json-node { list-style: none; padding-left: 20px; margin: 0; }
-.json-node.root { padding-left: 0; }
-.json-toggle {
-  cursor: pointer; user-select: none; display: inline-block;
-  width: 16px; color: #6c7086; font-size: 12px; vertical-align: middle;
+.json-left textarea:focus {
+  border-color: #4f46e5;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
 }
-.json-toggle:hover { color: #cdd6f4; }
-.json-key { color: #89b4fa; }
-.json-key::after { content: ': '; color: #bac2de; }
-.json-string { color: #a6e3a1; }
-.json-number { color: #fab387; }
-.json-boolean { color: #cba6f7; }
-.json-null { color: #f38ba8; }
-.json-bracket { color: #f9e2af; }
-.json-ellipsis { color: #6c7086; font-style: italic; }
-.json-count { color: #6c7086; font-size: 11px; margin-left: 4px; }
-.json-compound { display: inline; }
+.json-left .btn-row { margin-top: 10px; }
+.json-left .msg { margin-top: 6px; min-height: auto; }
+
+/* ── Right Panel ─────────────────────── */
+.json-right {
+  background: #1e1e2e;
+  display: flex; flex-direction: column;
+  min-height: 480px;
+  overflow: hidden;
+}
+.json-tree-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  font-size: 12px;
+  color: #6c7086;
+  flex-shrink: 0;
+}
+.tree-root-label {
+  font-family: "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+}
+
+.json-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 16px;
+  font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #cdd6f4;
+}
+.json-tree-placeholder {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 6px;
+  color: #585b70;
+  font-size: 13px;
+}
+.json-tree-placeholder .error-icon { font-size: 28px; }
+.json-tree-placeholder span { color: #585b70; }
+
+/* ── Tree Nodes ──────────────────────── */
+.jn-node { }
+.jn-row {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  padding: 1px 0;
+  border-radius: 3px;
+}
+.jn-row:hover { background: rgba(255,255,255,0.04); }
+.jn-row.jn-close { cursor: default; }
+.jn-row.jn-close:hover { background: transparent; }
+
+.jn-arrow {
+  display: inline-block; width: 16px;
+  color: #6c7086; font-size: 10px;
+  text-align: center; vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.jn-children {
+  padding-left: 20px;
+  border-left: 1px solid rgba(206,210,236,0.12);
+  margin-left: 8px;
+}
+
+.jn-child-row {
+  white-space: nowrap;
+}
+
+/* ── Syntax Colors ───────────────────── */
+.jn-key    { color: #89b4fa; }
+.jn-idx    { color: #6c7086; font-size: 11px; }
+.jn-colon  { color: #bac2de; }
+.jn-str    { color: #a6e3a1; }
+.jn-num    { color: #fab387; }
+.jn-bool   { color: #cba6f7; }
+.jn-null   { color: #f38ba8; }
+.jn-bracket{ color: #f9e2af; }
+.jn-dots   { color: #6c7086; }
+.jn-count  { color: #6c7086; font-size: 11px; }
+
+/* ── Header ──────────────────────────── */
+.header-actions {
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
 </style>
