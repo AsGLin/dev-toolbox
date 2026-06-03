@@ -292,67 +292,109 @@ export const JsonNode = defineComponent({
       const { val, depth, path, isLast, toggle, isExpanded, esc } = props
       const comma = !isLast ? ',' : ''
 
-      if (val === null) return h('span', { class: 'jn-null' }, 'null' + comma)
-      if (typeof val === 'boolean') return h('span', { class: 'jn-bool' }, val + '' + comma)
-      if (typeof val === 'number') return h('span', { class: 'jn-num' }, val + '' + comma)
-      if (typeof val === 'string') return h('span', { class: 'jn-str' }, `"${esc(val)}"` + comma)
+      // ── primitive values ──────────────
+      if (val === null) return h('span', { class: 'jn-val jn-null' }, 'null' + comma)
+      if (typeof val === 'boolean') return h('span', { class: 'jn-val jn-bool' }, val + '' + comma)
+      if (typeof val === 'number') return h('span', { class: 'jn-val jn-num' }, val + '' + comma)
+      if (typeof val === 'string') {
+        // Long strings: show count badge
+        const display = esc(val)
+        const badge = display.length > 60
+          ? h('span', { class: 'jn-len' }, ` ${display.length} chars`)
+          : null
+        return h('span', [h('span', { class: 'jn-val jn-str' }, `"${display}"`), badge, comma])
+      }
 
+      // ── compound values ───────────────
       const isArr = Array.isArray(val)
       const keys = Object.keys(val)
       const len = keys.length
       const nodeKey = path
       const expanded = isExpanded(nodeKey)
-      const bracket = isArr ? ['[', ']'] : ['{', '}']
 
       if (len === 0) {
-        return h('span', { class: 'jn-bracket' }, bracket[0] + bracket[1] + comma)
+        return h('span', { class: 'jn-bracket' }, (isArr ? '[]' : '{}') + comma)
       }
+
+      const typeLabel = isArr ? `array [${len}]` : `object {${len}}`
 
       const children = []
 
-      // clickable row
+      // ── toggle row (open bracket) ─────
+      const toggleClasses = ['jn-toggle-row']
+      if (depth < 10) toggleClasses.push(`jn-depth-${Math.min(depth, 10)}`)
+
       children.push(h('div', {
-        class: 'jn-row',
+        class: toggleClasses,
         onClick: () => toggle(nodeKey),
+        title: expanded ? '点击折叠' : '点击展开',
       }, [
-        h('span', { class: 'jn-arrow' }, expanded ? '▼' : '▶'),
-        h('span', { class: 'jn-bracket' }, bracket[0]),
-        h('span', { class: 'jn-count' }, ` ${len} `),
-        expanded
-          ? h('span', { class: 'jn-dots' })
-          : h('span', { class: 'jn-dots' }, '…' + bracket[1] + comma),
+        h('span', { class: 'jn-arr' }, expanded ? '▾' : '▸'),
+        h('span', { class: 'jn-type-tag' }, typeLabel),
+        expanded ? null : h('span', { class: 'jn-preview' }, preview(val, esc, 120)),
       ]))
 
+      // ── expanded children ────────────
       if (expanded) {
-        const list = h('div', { class: 'jn-children' },
-          keys.map((k, i) => {
-            const childPath = path + (isArr ? `[${k}]` : `.${k}`)
-            return h('div', { class: 'jn-child-row', key: k }, [
-              !isArr ? h('span', { class: 'jn-key' }, `"${esc(k)}"`) : h('span', { class: 'jn-idx' }, `${k}`),
-              h('span', { class: 'jn-colon' }, ': '),
-              h(JsonNode, {
-                val: val[k],
-                depth: depth + 1,
-                path: childPath,
-                isLast: i === len - 1,
-                toggle,
-                isExpanded,
-                esc,
-              }),
-            ])
-          })
-        )
-        children.push(list)
-        children.push(h('div', { class: 'jn-row jn-close' }, [
-          h('span', { class: 'jn-arrow' }, ''),
-          h('span', { class: 'jn-bracket' }, bracket[1] + comma),
+        keys.forEach((k, i) => {
+          const childPath = path + (isArr ? `[${k}]` : `.${k}`)
+          const childLast = i === len - 1
+          children.push(h('div', {
+            class: ['jn-line', `jn-depth-${Math.min(depth + 1, 10)}`],
+            key: k,
+          }, [
+            h('span', { class: 'jn-gutter' }),
+            !isArr
+              ? [h('span', { class: 'jn-key' }, `"${esc(k)}"`), h('span', { class: 'jn-col' }, ': ')]
+              : h('span', { class: 'jn-idx' }, `${k}: `),
+            h(JsonNode, {
+              val: val[k], depth: depth + 1, path: childPath,
+              isLast: childLast, toggle, isExpanded, esc,
+            }),
+          ]))
+        })
+        // close bracket line
+        children.push(h('div', {
+          class: ['jn-line jn-close-line', `jn-depth-${Math.min(depth, 10)}`],
+        }, [
+          h('span', { class: 'jn-gutter' }),
+          h('span', { class: 'jn-bracket' }, (isArr ? ']' : '}') + comma),
         ]))
       }
 
-      return h('div', { class: 'jn-node' }, children)
+      return h('div', { class: 'jn-block' }, children)
     }
   },
 })
+
+function preview(val, esc, maxLen) {
+  if (Array.isArray(val)) {
+    const parts = val.slice(0, 3).map(v => {
+      if (v === null) return 'null'
+      if (typeof v === 'string') return `"${esc(v).substring(0, 20)}${v.length > 20 ? '…' : ''}"`
+      return String(v)
+    })
+    let s = parts.join(', ')
+    if (val.length > 3) s += `, +${val.length - 3}`
+    if (s.length > maxLen) s = s.substring(0, maxLen) + '…'
+    return s
+  } else {
+    const keys = Object.keys(val)
+    const parts = keys.slice(0, 3).map(k => {
+      const v = val[k]
+      let vs
+      if (v === null) vs = 'null'
+      else if (typeof v === 'string') vs = `"${esc(v).substring(0, 16)}${v.length > 16 ? '…' : ''}"`
+      else if (typeof v === 'object') vs = Array.isArray(v) ? '[...]' : '{...}'
+      else vs = String(v)
+      return `"${esc(k)}": ${vs}`
+    })
+    let s = parts.join(', ')
+    if (keys.length > 3) s += `, +${keys.length - 3}`
+    if (s.length > maxLen) s = s.substring(0, maxLen) + '…'
+    return s
+  }
+}
 </script>
 
 <style scoped>
@@ -367,7 +409,7 @@ export const JsonNode = defineComponent({
   max-height: calc(100vh - 160px);
 }
 @media (max-width: 768px) {
-  .json-body { grid-template-columns: 1fr; min-height: auto; }
+  .json-body { grid-template-columns: 1fr; min-height: auto; max-height: none; }
 }
 
 /* ── Left Panel ──────────────────────── */
@@ -386,10 +428,10 @@ export const JsonNode = defineComponent({
   padding: 12px;
   resize: none;
   background: #fafbfc;
+  outline: none;
 }
 .json-left textarea:focus {
   border-color: #4f46e5;
-  outline: none;
   box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
 }
 .json-left .btn-row { margin-top: 10px; }
@@ -397,86 +439,131 @@ export const JsonNode = defineComponent({
 
 /* ── Right Panel ─────────────────────── */
 .json-right {
-  background: #1e1e2e;
+  background: #16162a;
   display: flex; flex-direction: column;
   min-height: 480px;
   overflow: hidden;
 }
 .json-tree-header {
-  padding: 10px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
   font-size: 12px;
-  color: #6c7086;
+  color: #585b70;
   flex-shrink: 0;
 }
 .tree-root-label {
   font-family: "Fira Code", "Consolas", monospace;
   font-size: 12px;
+  color: #9399b2;
 }
 
 .json-tree {
   flex: 1;
   overflow: auto;
-  padding: 12px 16px;
+  padding: 4px 0 12px;
   font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
   font-size: 13px;
-  line-height: 1.8;
+  line-height: 1.55;
   color: #cdd6f4;
 }
 .json-tree-placeholder {
   flex: 1;
   display: flex; align-items: center; justify-content: center;
   flex-direction: column; gap: 6px;
-  color: #585b70;
+  color: #45475a;
   font-size: 13px;
 }
 .json-tree-placeholder .error-icon { font-size: 28px; }
-.json-tree-placeholder span { color: #585b70; }
 
-/* ── Tree Nodes ──────────────────────── */
-.jn-node { }
-.jn-row {
+/* ── Tree Block ─────────────────────── */
+.jn-block { }
+
+/* ── Toggle row: ▸ object {2} ─────── */
+.jn-toggle-row {
+  display: flex;
+  align-items: center;
   cursor: pointer;
   user-select: none;
-  white-space: nowrap;
-  padding: 1px 0;
-  border-radius: 3px;
+  padding: 3px 12px;
+  padding-left: calc(12px + var(--depth, 0) * 18px);
+  transition: background 0.08s;
+  margin: 0;
 }
-.jn-row:hover { background: rgba(255,255,255,0.04); }
-.jn-row.jn-close { cursor: default; }
-.jn-row.jn-close:hover { background: transparent; }
+.jn-toggle-row:hover {
+  background: rgba(147, 160, 230, 0.06);
+}
 
-.jn-arrow {
-  display: inline-block; width: 16px;
-  color: #6c7086; font-size: 10px;
-  text-align: center; vertical-align: middle;
+.jn-depth-0  { --depth: 0; }
+.jn-depth-1  { --depth: 1; }
+.jn-depth-2  { --depth: 2; }
+.jn-depth-3  { --depth: 3; }
+.jn-depth-4  { --depth: 4; }
+.jn-depth-5  { --depth: 5; }
+.jn-depth-6  { --depth: 6; }
+.jn-depth-7  { --depth: 7; }
+.jn-depth-8  { --depth: 8; }
+.jn-depth-9  { --depth: 9; }
+.jn-depth-10 { --depth: 10; }
+
+.jn-arr {
   flex-shrink: 0;
+  width: 16px;
+  color: #585b70;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
-.jn-children {
-  padding-left: 20px;
-  border-left: 1px solid rgba(206,210,236,0.12);
-  margin-left: 8px;
+.jn-type-tag {
+  flex-shrink: 0;
+  margin-right: 6px;
+  color: #bac2de;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: .2px;
 }
 
-.jn-child-row {
+.jn-preview {
+  color: #585b70;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.55;
+}
+
+/* ── Child line ─────────────────────── */
+.jn-line {
+  display: flex;
+  align-items: center;
+  padding: 3px 12px;
+  padding-left: calc(12px + var(--depth) * 18px);
+  margin: 0;
+  transition: background 0.08s;
+}
+.jn-line:hover {
+  background: rgba(147, 160, 230, 0.06);
+}
+
+.jn-gutter {
+  flex-shrink: 0;
+  width: 16px;
+}
+
+.jn-close-line {
+  cursor: default;
 }
 
 /* ── Syntax Colors ───────────────────── */
-.jn-key    { color: #89b4fa; }
-.jn-idx    { color: #6c7086; font-size: 11px; }
-.jn-colon  { color: #bac2de; }
-.jn-str    { color: #a6e3a1; }
-.jn-num    { color: #fab387; }
-.jn-bool   { color: #cba6f7; }
-.jn-null   { color: #f38ba8; }
-.jn-bracket{ color: #f9e2af; }
-.jn-dots   { color: #6c7086; }
-.jn-count  { color: #6c7086; font-size: 11px; }
+.jn-key  { color: #89b4fa; }
+.jn-idx  { color: #6c7086; font-size: 12px; }
+.jn-col  { color: #585b70; }
+.jn-str  { color: #a6e3a1; }
+.jn-num  { color: #fab387; }
+.jn-bool { color: #cba6f7; }
+.jn-null { color: #f38ba8; font-style: italic; }
+.jn-bracket { color: #f9e2af; }
+.jn-len  { color: #45475a; font-size: 10px; margin-left: 4px; }
 
 /* ── Header ──────────────────────────── */
-.header-actions {
-  display: flex; gap: 6px; flex-wrap: wrap;
-}
+.header-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 </style>
