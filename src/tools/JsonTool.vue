@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, nextTick, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 
 const jsonText = ref('')
 const jsonMsg = ref('')
@@ -7,219 +7,121 @@ const jsonMsgOk = ref(true)
 const parsedData = ref(null)
 const parseError = ref('')
 
-let nodeId = 0
-
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
 function show(text, ok) { jsonMsg.value = text; jsonMsgOk.value = ok }
 
-// ── Parse & Render ─────────────────────────
+const itemCount = ref(0)
+const isArray = computed(() => parsedData.value && Array.isArray(parsedData.value))
+
+// ── Parse ───────────────────────────────────
 function autoParse() {
   const v = jsonText.value.trim()
   if (!v) { parsedData.value = null; parseError.value = ''; jsonMsg.value = ''; itemCount.value = 0; return }
   try {
     parsedData.value = JSON.parse(v)
-    parseError.value = ''
-    jsonMsg.value = ''
+    parseError.value = ''; jsonMsg.value = ''
     itemCount.value = Array.isArray(parsedData.value) ? parsedData.value.length : Object.keys(parsedData.value).length
-    return
   } catch (e1) {
     const fixed = tryFixJson(v)
     if (fixed && fixed !== v) {
-      try { parsedData.value = JSON.parse(fixed); parseError.value = ''; jsonMsg.value = '⚠ 已自动修正格式问题'; jsonMsgOk.value = true; itemCount.value = Array.isArray(parsedData.value) ? parsedData.value.length : Object.keys(parsedData.value).length; return } catch (e2) {}
+      try { parsedData.value = JSON.parse(fixed); parseError.value = ''; jsonMsg.value = '⚠ 已自动修正'; jsonMsgOk.value = true
+        itemCount.value = Array.isArray(parsedData.value) ? parsedData.value.length : Object.keys(parsedData.value).length; return
+      } catch (e2) {}
     }
+    parsedData.value = null; itemCount.value = 0; parseError.value = '格式错误'; jsonMsg.value = '⚠ JSON 格式错误'; jsonMsgOk.value = false
   }
-  parsedData.value = null
-  itemCount.value = 0
-  parseError.value = '格式错误'
-  jsonMsg.value = '⚠ JSON 格式错误'
-  jsonMsgOk.value = false
 }
 
 function formatJson() {
-  const v = jsonText.value.trim()
-  if (!v) return
-  // Try direct parse
-  try {
-    parsedData.value = JSON.parse(v)
-    jsonText.value = JSON.stringify(parsedData.value, null, 2)
-    itemCount.value = Array.isArray(parsedData.value) ? parsedData.value.length : Object.keys(parsedData.value).length
-    show('✓ 格式化成功', true)
-    return
-  } catch (e) {
-    // Try fix
+  const v = jsonText.value.trim(); if (!v) return
+  try { parsedData.value = JSON.parse(v); jsonText.value = JSON.stringify(parsedData.value, null, 2); itemCount.value = Array.isArray(parsedData.value) ? parsedData.value.length : Object.keys(parsedData.value).length; show('✓ 格式化成功', true) }
+  catch (e) {
     const fixed = tryFixJson(v)
-    if (fixed && fixed !== v) {
-      try {
-        parsedData.value = JSON.parse(fixed)
-        jsonText.value = JSON.stringify(parsedData.value, null, 2)
-        show('✓ 已自动修复并格式化', true)
-        return
-      } catch (e2) {}
-    }
+    if (fixed && fixed !== v) { try { parsedData.value = JSON.parse(fixed); jsonText.value = JSON.stringify(parsedData.value, null, 2); show('✓ 已修复并格式化', true) } catch (e2) { show('✗ 解析错误', false) } }
+    else { parsedData.value = null; show('✗ JSON 解析错误', false) }
   }
-  parsedData.value = null
-  show('✗ JSON 解析错误', false)
 }
 
 function compressJson() {
-  const v = jsonText.value.trim()
-  if (!v) return
-  try {
-    parsedData.value = JSON.parse(v)
-    jsonText.value = JSON.stringify(parsedData.value)
-    show('✓ 压缩成功', true)
-  } catch (e) {
+  const v = jsonText.value.trim(); if (!v) return
+  try { parsedData.value = JSON.parse(v); jsonText.value = JSON.stringify(parsedData.value); show('✓ 压缩成功', true) } catch (e) {
     const fixed = tryFixJson(v)
-    if (fixed && fixed !== v) {
-      try {
-        parsedData.value = JSON.parse(fixed)
-        jsonText.value = JSON.stringify(parsedData.value)
-        show('✓ 压缩成功', true)
-        return
-      } catch (e2) {}
-    }
-    show('✗ JSON 解析错误', false)
+    if (fixed) { try { parsedData.value = JSON.parse(fixed); jsonText.value = JSON.stringify(parsedData.value); show('✓ 压缩成功', true) } catch (e2) { show('✗ 错误', false) } }
+    else show('✗ 错误', false)
   }
 }
 
 function fixJson() {
-  const v = jsonText.value.trim()
-  if (!v) return
-  try {
-    parsedData.value = JSON.parse(v)
-    jsonText.value = JSON.stringify(parsedData.value, null, 2)
-    show('✓ JSON 格式正确，无需修复', true)
-    return
-  } catch (e) {
-    const fixed = tryFixJson(v)
-    if (!fixed || fixed === v) { show('✗ 自动修复失败', false); return }
-    try {
-      parsedData.value = JSON.parse(fixed)
-      jsonText.value = JSON.stringify(parsedData.value, null, 2)
-      show('✓ 已修复并格式化', true)
-    } catch (e2) { show('✗ 修复后仍有错误', false) }
-  }
+  const v = jsonText.value.trim(); if (!v) return
+  try { parsedData.value = JSON.parse(v); jsonText.value = JSON.stringify(parsedData.value, null, 2); show('✓ 格式正确，无需修复', true); return } catch (e) {}
+  const fixed = tryFixJson(v); if (!fixed || fixed === v) { show('✗ 修复失败', false); return }
+  try { parsedData.value = JSON.parse(fixed); jsonText.value = JSON.stringify(parsedData.value, null, 2); show('✓ 已修复并格式化', true) } catch (e2) { show('✗ 修复失败', false) }
 }
 
-function clearAll() {
-  jsonText.value = ''
-  parsedData.value = null
-  parseError.value = ''
-  jsonMsg.value = ''
-}
+function clearAll() { jsonText.value = ''; parsedData.value = null; parseError.value = ''; jsonMsg.value = '' }
 
 function copyData() {
   if (!parsedData.value) { show('⚠ 没有可复制的内容', false); return }
-  navigator.clipboard.writeText(jsonText.value).then(
-    () => show('✓ 已复制', true),
-    () => show('✗ 复制失败', false)
-  )
+  navigator.clipboard.writeText(jsonText.value).then(() => show('✓ 已复制', true), () => show('✗ 复制失败', false))
 }
 
 // ── JSON Fixer Engine ──────────────────────
 function tryFixJson(str) {
   let s = str
-
-  // Pass 0: normalize line endings
   s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-
-  // Pass 1: strip comments
-  s = s.replace(/\/\*[\s\S]*?\*\//g, '')          // block /* ... */
-  s = s.replace(/(?<!https?:)\/\/.*$/gm, '')       // line // ... (skip https://)
-
-  // Pass 2: trailing commas before ] or }
+  s = s.replace(/\/\*[\s\S]*?\*\//g, '')
+  s = s.replace(/(?<!https?:)\/\/.*$/gm, '')
   s = s.replace(/,(\s*[}\]])/g, '$1')
-
-  // Pass 3: fix single-quoted strings → double
   s = fixQuotes(s)
-
-  // Pass 4: quote unquoted keys — need to handle keys after line breaks too
-  // Matches: start of line or after { [ , followed by key:
   s = s.replace(/(^|\n|\{|\[|,)\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/gm, '$1"$2":')
-
-  // Pass 5: consecutive commas
   s = s.replace(/,\s*,+/g, ',')
-
-  // Pass 6: missing commas between values (string-string, number-number, value-brace)
   s = s.replace(/"\s+(?=")/g, '",')
   s = s.replace(/(\d)\s+(?=\d)/g, '$1,')
   s = s.replace(/(\d)\s+(?=")/g, '$1,')
   s = s.replace(/([}\]"\d])\s+(?=[\[{])/g, '$1,')
-
-  // Pass 7: unquoted string values (skip true/false/null, numbers)
   s = s.replace(/":\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*([,}\]\n])/g, (m, w, sep) => {
     if (w === 'true' || w === 'false' || w === 'null') return '": ' + w + sep
     if (/^-?\d/.test(w)) return '": ' + w + sep
     return '": "' + w + '"' + sep
   })
-
-  // Pass 8: empty array slots
   s = s.replace(/\[\s*,/g, '[')
   s = s.replace(/,\s*,/g, ',')
   s = s.replace(/,\s*\]/g, ']')
-
-  // Pass 9: clean up blank lines / excess whitespace
   s = s.replace(/\n\s*\n/g, '\n')
-
-  // Pass 10: auto-wrap — if input doesn't start with { or [ but looks like key:value
   s = s.trim()
   if (!/^\s*[\[{]/.test(s)) {
-    if (/^\s*"[^"]+"\s*:/.test(s) || /^\s*[a-zA-Z_$][\w$]*\s*:/.test(s)) {
-      s = '{' + s + '}'
-    }
+    if (/^\s*"[^"]+"\s*:/.test(s) || /^\s*[a-zA-Z_$][\w$]*\s*:/.test(s)) s = '{' + s + '}'
   }
-
-  // Pass 11: final trailing comma cleanup
   s = s.replace(/,(\s*\})/g, '$1')
   s = s.replace(/,(\s*\])/g, '$1')
-
   return s
 }
 
 function fixQuotes(s) {
-  let result = ''; let inDouble = false; let inSingle = false; let i = 0
+  let result = ''; let inD = false; let inS = false; let i = 0
   while (i < s.length) {
-    const ch = s[i]
-    if (inDouble) { if (ch === '\\' && i + 1 < s.length) { result += ch + s[i + 1]; i += 2; continue } if (ch === '"') inDouble = false; result += ch; i++; continue }
-    if (inSingle) {
-      if (ch === '\\' && i + 1 < s.length) { if (s[i + 1] === "'") { result += "'"; i += 2; continue } result += ch + s[i + 1]; i += 2; continue }
-      if (ch === "'") { inSingle = false; result += '"'; i++; continue }
-      if (ch === '"') { result += '\\"'; i++; continue }
-      result += ch; i++; continue
+    const c = s[i]
+    if (inD) { if (c === '\\' && i + 1 < s.length) { result += c + s[i + 1]; i += 2; continue } if (c === '"') inD = false; result += c; i++; continue }
+    if (inS) {
+      if (c === '\\' && i + 1 < s.length) { if (s[i + 1] === "'") { result += "'"; i += 2; continue } result += c + s[i + 1]; i += 2; continue }
+      if (c === "'") { inS = false; result += '"'; i++; continue }
+      if (c === '"') { result += '\\"'; i++; continue }
+      result += c; i++; continue
     }
-    if (ch === '"') { inDouble = true; result += ch }
-    else if (ch === "'") { inSingle = true; result += '"' }
-    else result += ch
+    if (c === '"') { inD = true; result += c } else if (c === "'") { inS = true; result += '"' } else result += c
     i++
   }
   return result
 }
 
-// ── Tree Render ────────────────────────────
-const treeNodeStates = reactive({})
-const itemCount = ref(0)
-const isArray = computed(() => parsedData.value && Array.isArray(parsedData.value))
-
-function renderTree() {
-  if (!parsedData.value) return
-  nodeId = 0
-  // reset all node states to expanded
-  Object.keys(treeNodeStates).forEach(k => delete treeNodeStates[k])
-  const data = parsedData.value
-  itemCount.value = Array.isArray(data) ? data.length : Object.keys(data).length
-}
-
-function toggle(key) {
-  treeNodeStates[key] = !treeNodeStates[key]
-}
-
-function isExpanded(key) {
-  return treeNodeStates[key] !== false // default expanded
-}
+// ── Tree State ─────────────────────────────
+const treeState = reactive({})
+function toggle(k) { treeState[k] = !treeState[k] }
+function isOpen(k) { return treeState[k] !== false }
 
 const rootLabel = computed(() => {
   if (!parsedData.value) return parseError.value ? '解析错误' : '等待输入…'
-  return isArray.value ? 'Array [' + itemCount.value + ']' : 'Object {' + itemCount.value + '}'
+  return isArray.value ? `array [${itemCount.value}]` : `object {${itemCount.value}}`
 })
 
 autoParse()
@@ -238,11 +140,7 @@ autoParse()
     <div class="card-body json-body">
       <!-- Left: Input -->
       <div class="json-left">
-        <textarea
-          v-model="jsonText"
-          placeholder="粘贴 JSON 数据..."
-          @input="autoParse"
-        ></textarea>
+        <textarea v-model="jsonText" placeholder="粘贴 JSON 数据..." @input="autoParse"></textarea>
         <div class="btn-row">
           <button class="btn-primary" @click="formatJson">格式化</button>
           <button class="btn-success" @click="copyData">📋 复制</button>
@@ -262,148 +160,126 @@ autoParse()
             :path="'$'"
             :isLast="true"
             :toggle="toggle"
-            :isExpanded="isExpanded"
+            :isOpen="isOpen"
             :esc="esc"
           />
         </div>
         <div class="json-tree-placeholder" v-else>
-          <template v-if="parseError">
-            <span class="error-icon">⚠️</span>
-            <span>{{ parseError }}</span>
-          </template>
-          <template v-else>
-            <span>左侧输入 JSON 后在此解析展示</span>
-          </template>
+          <template v-if="parseError"><span class="error-icon">⚠️</span><span>JSON 格式错误</span></template>
+          <template v-else><span>左侧输入 JSON 后在此解析展示</span></template>
         </div>
       </div>
     </div>
   </div>
 </template>
 
-<!-- ═══ JsonNode recursive component ═══ -->
+<!-- ═══ JsonNode recursive ═══ -->
 <script>
 import { h, defineComponent } from 'vue'
 
 export const JsonNode = defineComponent({
   name: 'JsonNode',
-  props: ['val', 'depth', 'path', 'isLast', 'toggle', 'isExpanded', 'esc'],
+  props: ['val', 'depth', 'path', 'isLast', 'toggle', 'isOpen', 'esc'],
   setup(props) {
+    function prim(v, comma) {
+      if (v === null)      return h('span', { class: 'jn jn-null' }, 'null' + comma)
+      if (typeof v === 'boolean') return h('span', { class: 'jn jn-bool' }, v + comma)
+      if (typeof v === 'number')  return h('span', { class: 'jn jn-num' }, v + comma)
+      if (typeof v === 'string')  return h('span', { class: 'jn jn-str' }, '"' + props.esc(v) + '"' + comma)
+      return null
+    }
+
     return () => {
-      const { val, depth, path, isLast, toggle, isExpanded, esc } = props
-      const comma = !isLast ? ',' : ''
+      const { val, depth, path, isLast, toggle, isOpen, esc } = props
+      const comma = isLast ? '' : ','
 
-      // ── primitive values ──────────────
-      if (val === null) return h('span', { class: 'jn-val jn-null' }, 'null' + comma)
-      if (typeof val === 'boolean') return h('span', { class: 'jn-val jn-bool' }, val + '' + comma)
-      if (typeof val === 'number') return h('span', { class: 'jn-val jn-num' }, val + '' + comma)
-      if (typeof val === 'string') {
-        // Long strings: show count badge
-        const display = esc(val)
-        const badge = display.length > 60
-          ? h('span', { class: 'jn-len' }, ` ${display.length} chars`)
-          : null
-        return h('span', [h('span', { class: 'jn-val jn-str' }, `"${display}"`), badge, comma])
-      }
+      // primitive
+      if (typeof val !== 'object' || val === null) return prim(val, comma)
 
-      // ── compound values ───────────────
       const isArr = Array.isArray(val)
       const keys = Object.keys(val)
       const len = keys.length
-      const nodeKey = path
-      const expanded = isExpanded(nodeKey)
+      const expanded = isOpen(path)
 
-      if (len === 0) {
-        return h('span', { class: 'jn-bracket' }, (isArr ? '[]' : '{}') + comma)
-      }
+      if (len === 0) return h('span', { class: 'jn jn-brace' }, (isArr ? '[]' : '{}') + comma)
 
-      const typeLabel = isArr ? `array [${len}]` : `object {${len}}`
+      const label  = isArr ? `Array [${len}]` : `Object {${len}}`
+      const braceL = isArr ? '[' : '{'
+      const braceR = isArr ? ']' : '}'
 
       const children = []
 
-      // ── toggle row (open bracket) ─────
-      const toggleClasses = ['jn-toggle-row']
-      if (depth < 10) toggleClasses.push(`jn-depth-${Math.min(depth, 10)}`)
-
+      // ── Toggle row ──────────────────────
       children.push(h('div', {
-        class: toggleClasses,
-        onClick: () => toggle(nodeKey),
-        title: expanded ? '点击折叠' : '点击展开',
+        class: `jn-row ${depth < 12 ? 'jn-d' + Math.min(depth, 11) : ''}`,
+        onClick: () => toggle(path),
+        title: expanded ? '折叠' : '展开',
       }, [
         h('span', { class: 'jn-arr' }, expanded ? '▾' : '▸'),
-        h('span', { class: 'jn-type-tag' }, typeLabel),
-        expanded ? null : h('span', { class: 'jn-preview' }, preview(val, esc, 120)),
+        h('span', { class: 'jn-brace' }, braceL),
+        h('span', { class: 'jn-tag' }, ` ${label} `),
+        expanded ? null : h('span', { class: 'jn-prev' }, ` ${preview(val, esc, 90)} ${braceR}`),
       ]))
 
-      // ── expanded children ────────────
+      // ── Children ────────────────────────
       if (expanded) {
         keys.forEach((k, i) => {
-          const childPath = path + (isArr ? `[${k}]` : `.${k}`)
-          const childLast = i === len - 1
-          children.push(h('div', {
-            class: ['jn-line', `jn-depth-${Math.min(depth + 1, 10)}`],
-            key: k,
-          }, [
-            h('span', { class: 'jn-gutter' }),
-            !isArr
-              ? [h('span', { class: 'jn-key' }, `"${esc(k)}"`), h('span', { class: 'jn-col' }, ': ')]
-              : h('span', { class: 'jn-idx' }, `${k}: `),
-            h(JsonNode, {
-              val: val[k], depth: depth + 1, path: childPath,
-              isLast: childLast, toggle, isExpanded, esc,
-            }),
+          const cp = path + (isArr ? `[${k}]` : `.${k}`)
+          const cl = i === len - 1
+          children.push(h('div', { class: `jn-row jn-d${Math.min(depth + 1, 11)}`, key: k }, [
+            h('span', { class: 'jn-sp' }),
+            isArr
+              ? h('span', { class: 'jn-idx' }, k + ': ')
+              : [h('span', { class: 'jn-key' }, '"' + esc(k) + '"'), h('span', { class: 'jn-colo' }, ': ')],
+            h(JsonNode, { val: val[k], depth: depth + 1, path: cp, isLast: cl, toggle, isOpen, esc }),
           ]))
         })
-        // close bracket line
-        children.push(h('div', {
-          class: ['jn-line jn-close-line', `jn-depth-${Math.min(depth, 10)}`],
-        }, [
-          h('span', { class: 'jn-gutter' }),
-          h('span', { class: 'jn-bracket' }, (isArr ? ']' : '}') + comma),
+        children.push(h('div', { class: `jn-row jn-d${Math.min(depth, 11)}` }, [
+          h('span', { class: 'jn-sp' }),
+          h('span', { class: 'jn jn-brace' }, braceR + comma),
         ]))
       }
 
-      return h('div', { class: 'jn-block' }, children)
+      return h('div', null, children)
     }
   },
 })
 
-function preview(val, esc, maxLen) {
+function preview(val, esc, max) {
+  let s = ''
   if (Array.isArray(val)) {
-    const parts = val.slice(0, 3).map(v => {
+    const p = val.slice(0, 4).map(v => {
       if (v === null) return 'null'
-      if (typeof v === 'string') return `"${esc(v).substring(0, 20)}${v.length > 20 ? '…' : ''}"`
+      if (typeof v === 'string') { const e = esc(v); return '"' + e.substring(0, 15) + (e.length > 15 ? '…' : '') + '"' }
+      if (typeof v === 'object') return Array.isArray(v) ? '[...]' : '{...}'
       return String(v)
     })
-    let s = parts.join(', ')
-    if (val.length > 3) s += `, +${val.length - 3}`
-    if (s.length > maxLen) s = s.substring(0, maxLen) + '…'
-    return s
+    s = p.join(', ')
+    if (val.length > 4) s += ', …'
   } else {
-    const keys = Object.keys(val)
-    const parts = keys.slice(0, 3).map(k => {
-      const v = val[k]
-      let vs
+    const ks = Object.keys(val)
+    const p = ks.slice(0, 3).map(k => {
+      const v = val[k]; let vs = ''
       if (v === null) vs = 'null'
-      else if (typeof v === 'string') vs = `"${esc(v).substring(0, 16)}${v.length > 16 ? '…' : ''}"`
+      else if (typeof v === 'string') { const e = esc(v); vs = '"' + e.substring(0, 12) + (e.length > 12 ? '…' : '') + '"' }
       else if (typeof v === 'object') vs = Array.isArray(v) ? '[...]' : '{...}'
       else vs = String(v)
-      return `"${esc(k)}": ${vs}`
+      return '"' + esc(k) + '": ' + vs
     })
-    let s = parts.join(', ')
-    if (keys.length > 3) s += `, +${keys.length - 3}`
-    if (s.length > maxLen) s = s.substring(0, maxLen) + '…'
-    return s
+    s = p.join(', ')
+    if (ks.length > 3) s += ', …'
   }
+  if (s.length > max) s = s.substring(0, max) + '…'
+  return s
 }
 </script>
 
 <style scoped>
-/* ── Layout ──────────────────────────── */
+/* ===== Layout ========================= */
 .json-card { max-height: none !important; }
 .json-body {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0;
   padding: 0 !important;
   min-height: 480px;
   max-height: calc(100vh - 160px);
@@ -412,7 +288,7 @@ function preview(val, esc, maxLen) {
   .json-body { grid-template-columns: 1fr; min-height: auto; max-height: none; }
 }
 
-/* ── Left Panel ──────────────────────── */
+/* ===== Left Panel ===================== */
 .json-left {
   padding: 16px;
   border-right: 1px solid #e5e7eb;
@@ -421,149 +297,103 @@ function preview(val, esc, maxLen) {
 .json-left textarea {
   flex: 1;
   font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 12px;
-  resize: none;
-  background: #fafbfc;
-  outline: none;
+  font-size: 13px; line-height: 1.6;
+  border: 1px solid #e5e7eb; border-radius: 8px;
+  padding: 12px; resize: none; background: #fafbfc; outline: none;
 }
-.json-left textarea:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
-}
+.json-left textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
 .json-left .btn-row { margin-top: 10px; }
 .json-left .msg { margin-top: 6px; min-height: auto; }
 
-/* ── Right Panel ─────────────────────── */
+/* ===== Right Panel ==================== */
 .json-right {
-  background: #16162a;
+  background: #12121e;
   display: flex; flex-direction: column;
-  min-height: 480px;
-  overflow: hidden;
+  min-height: 480px; overflow: hidden;
 }
 .json-tree-header {
-  padding: 8px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  font-size: 12px;
-  color: #585b70;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: 12px; color: #6b7094;
   flex-shrink: 0;
 }
-.tree-root-label {
-  font-family: "Fira Code", "Consolas", monospace;
-  font-size: 12px;
-  color: #9399b2;
-}
+.tree-root-label { font-family: "Fira Code", "Consolas", monospace; font-size: 12px; color: #949cbb; }
 
 .json-tree {
-  flex: 1;
-  overflow: auto;
-  padding: 4px 0 12px;
+  flex: 1; overflow: auto;
+  padding: 6px 0 16px;
   font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
-  font-size: 13px;
-  line-height: 1.55;
-  color: #cdd6f4;
+  font-size: 13px; line-height: 1.65; color: #cdd6f4;
 }
+
 .json-tree-placeholder {
-  flex: 1;
-  display: flex; align-items: center; justify-content: center;
-  flex-direction: column; gap: 6px;
-  color: #45475a;
-  font-size: 13px;
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 6px; color: #45475a; font-size: 13px;
 }
 .json-tree-placeholder .error-icon { font-size: 28px; }
 
-/* ── Tree Block ─────────────────────── */
-.jn-block { }
-
-/* ── Toggle row: ▸ object {2} ─────── */
-.jn-toggle-row {
+/* ===== Tree Rows ====================== */
+.jn-row {
   display: flex;
   align-items: center;
-  cursor: pointer;
+  height: 24px;
+  padding: 0 12px;
+  cursor: default;
   user-select: none;
-  padding: 3px 12px;
-  padding-left: calc(12px + var(--depth, 0) * 18px);
-  transition: background 0.08s;
-  margin: 0;
+  transition: background 0.06s;
 }
-.jn-toggle-row:hover {
-  background: rgba(147, 160, 230, 0.06);
-}
+.jn-row:hover { background: rgba(255, 255, 255, 0.03); }
 
-.jn-depth-0  { --depth: 0; }
-.jn-depth-1  { --depth: 1; }
-.jn-depth-2  { --depth: 2; }
-.jn-depth-3  { --depth: 3; }
-.jn-depth-4  { --depth: 4; }
-.jn-depth-5  { --depth: 5; }
-.jn-depth-6  { --depth: 6; }
-.jn-depth-7  { --depth: 7; }
-.jn-depth-8  { --depth: 8; }
-.jn-depth-9  { --depth: 9; }
-.jn-depth-10 { --depth: 10; }
+/* indent spacing via left padding */
+.jn-d0  { padding-left:  12px; }
+.jn-d1  { padding-left:  30px; }
+.jn-d2  { padding-left:  48px; }
+.jn-d3  { padding-left:  66px; }
+.jn-d4  { padding-left:  84px; }
+.jn-d5  { padding-left: 102px; }
+.jn-d6  { padding-left: 120px; }
+.jn-d7  { padding-left: 138px; }
+.jn-d8  { padding-left: 156px; }
+.jn-d9  { padding-left: 174px; }
+.jn-d10 { padding-left: 192px; }
+.jn-d11 { padding-left: 210px; }
 
 .jn-arr {
-  flex-shrink: 0;
-  width: 16px;
-  color: #585b70;
-  font-size: 12px;
-  line-height: 1.55;
+  flex-shrink: 0; width: 14px;
+  color: #6b7094; font-size: 12px;
+  text-align: center;
+}
+.jn-sp {
+  flex-shrink: 0; width: 14px;
 }
 
-.jn-type-tag {
-  flex-shrink: 0;
-  margin-right: 6px;
-  color: #bac2de;
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: .2px;
+.jn-tag {
+  color: #949cbb;
+  font-size: 11px;
+  font-weight: 500;
+  margin: 0 6px;
 }
 
-.jn-preview {
+.jn-prev {
   color: #585b70;
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.55;
 }
 
-/* ── Child line ─────────────────────── */
-.jn-line {
-  display: flex;
-  align-items: center;
-  padding: 3px 12px;
-  padding-left: calc(12px + var(--depth) * 18px);
-  margin: 0;
-  transition: background 0.08s;
-}
-.jn-line:hover {
-  background: rgba(147, 160, 230, 0.06);
-}
+/* ===== Syntax ========================= */
+.jn       { }
+.jn-key   { color: #82aaff; }
+.jn-idx   { color: #6b7094; font-size: 12px; }
+.jn-colo  { color: #6b7094; }
+.jn-str   { color: #c3e88d; }
+.jn-num   { color: #f78c6c; }
+.jn-bool  { color: #c792ea; }
+.jn-null  { color: #f07178; font-style: italic; }
+.jn-brace { color: #ffcb6b; }
+.jn-len   { color: #45475a; font-size: 10px; margin-left: 4px; }
 
-.jn-gutter {
-  flex-shrink: 0;
-  width: 16px;
-}
-
-.jn-close-line {
-  cursor: default;
-}
-
-/* ── Syntax Colors ───────────────────── */
-.jn-key  { color: #89b4fa; }
-.jn-idx  { color: #6c7086; font-size: 12px; }
-.jn-col  { color: #585b70; }
-.jn-str  { color: #a6e3a1; }
-.jn-num  { color: #fab387; }
-.jn-bool { color: #cba6f7; }
-.jn-null { color: #f38ba8; font-style: italic; }
-.jn-bracket { color: #f9e2af; }
-.jn-len  { color: #45475a; font-size: 10px; margin-left: 4px; }
-
-/* ── Header ──────────────────────────── */
+/* ===== Header ========================= */
 .header-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 </style>
