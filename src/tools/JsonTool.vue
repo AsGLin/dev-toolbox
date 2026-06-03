@@ -119,23 +119,60 @@ function copyData() {
 // ── JSON Fixer Engine ──────────────────────
 function tryFixJson(str) {
   let s = str
-  s = s.replace(/\/\*[\s\S]*?\*\//g, '')
-  s = s.replace(/\/\/.*$/gm, '')
+
+  // Pass 0: normalize line endings
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+  // Pass 1: strip comments
+  s = s.replace(/\/\*[\s\S]*?\*\//g, '')          // block /* ... */
+  s = s.replace(/(?<!https?:)\/\/.*$/gm, '')       // line // ... (skip https://)
+
+  // Pass 2: trailing commas before ] or }
   s = s.replace(/,(\s*[}\]])/g, '$1')
+
+  // Pass 3: fix single-quoted strings → double
   s = fixQuotes(s)
-  s = s.replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$.-]*)\s*:/g, '$1"$2":')
+
+  // Pass 4: quote unquoted keys — need to handle keys after line breaks too
+  // Matches: start of line or after { [ , followed by key:
+  s = s.replace(/(^|\n|\{|\[|,)\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/gm, '$1"$2":')
+
+  // Pass 5: consecutive commas
   s = s.replace(/,\s*,+/g, ',')
+
+  // Pass 6: missing commas between values (string-string, number-number, value-brace)
   s = s.replace(/"\s+(?=")/g, '",')
   s = s.replace(/(\d)\s+(?=\d)/g, '$1,')
   s = s.replace(/(\d)\s+(?=")/g, '$1,')
-  s = s.replace(/([}\]"])\s+(?=[\[{])/g, '$1,')
-  s = s.replace(/":\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*([,}\]])/g, (m, w, sep) => {
+  s = s.replace(/([}\]"\d])\s+(?=[\[{])/g, '$1,')
+
+  // Pass 7: unquoted string values (skip true/false/null, numbers)
+  s = s.replace(/":\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*([,}\]\n])/g, (m, w, sep) => {
     if (w === 'true' || w === 'false' || w === 'null') return '": ' + w + sep
+    if (/^-?\d/.test(w)) return '": ' + w + sep
     return '": "' + w + '"' + sep
   })
+
+  // Pass 8: empty array slots
   s = s.replace(/\[\s*,/g, '[')
   s = s.replace(/,\s*,/g, ',')
   s = s.replace(/,\s*\]/g, ']')
+
+  // Pass 9: clean up blank lines / excess whitespace
+  s = s.replace(/\n\s*\n/g, '\n')
+
+  // Pass 10: auto-wrap — if input doesn't start with { or [ but looks like key:value
+  s = s.trim()
+  if (!/^\s*[\[{]/.test(s)) {
+    if (/^\s*"[^"]+"\s*:/.test(s) || /^\s*[a-zA-Z_$][\w$]*\s*:/.test(s)) {
+      s = '{' + s + '}'
+    }
+  }
+
+  // Pass 11: final trailing comma cleanup
+  s = s.replace(/,(\s*\})/g, '$1')
+  s = s.replace(/,(\s*\])/g, '$1')
+
   return s
 }
 
